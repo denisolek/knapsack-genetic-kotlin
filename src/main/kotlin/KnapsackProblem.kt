@@ -1,5 +1,3 @@
-import java.util.*
-
 fun main(args: Array<String>) {
     val kp = KnapsackProblem()
 
@@ -29,10 +27,10 @@ class KnapsackProblem {
      * Setup
      */
     private val knapsackCapacity: Double = 100.0
-    private var populationSize: Int = 10
-    private var maxGenerations: Int = 70
+    private var populationSize: Int = 20
+    private var maxGenerations: Int = 200
     private val crossoverProbability: Double = 0.5
-    private val mutationProbability: Double = 0.03
+    private val mutationProbability: Double = 0.3
 
     /**
      * Init variables
@@ -42,30 +40,13 @@ class KnapsackProblem {
     var fitness: MutableList<Double> = mutableListOf()
     private val bestGenerationSolution: MutableList<String> = mutableListOf()
     private val bestGenerationFitness: MutableList<Double> = mutableListOf()
-    private val meanGenerationFitness: MutableList<Double> = mutableListOf()
-    private var mutation: Boolean = false
+    private val averageGenerationFitness: MutableList<Double> = mutableListOf()
+    private var mutationCount: Int = 0
     private var crossoverCount: Int = 0
     private var cloneCount: Int = 0
     private var generationCounter: Int = 1
     private val breedPopulation: MutableList<String> = mutableListOf()
-
-    private val items = listOf(
-        Item(24.0, 12.0),
-        Item(13.0, 7.0),
-        Item(23.0, 11.0),
-        Item(15.0, 8.0),
-        Item(14.0, 9.0),
-        Item(3.0, 6.0),
-        Item(2.0, 5.0),
-        Item(7.0, 14.0),
-        Item(32.0, 12.0),
-        Item(14.0, 91.0),
-        Item(51.0, 23.0),
-        Item(23.0, 7.0),
-        Item(4.0, 5.0),
-        Item(65.0, 30.0),
-        Item(3.0, 4.0)
-    )
+    private val items = Item.getItems()
 
     /**
      * Filling population with random genes
@@ -100,11 +81,9 @@ class KnapsackProblem {
     }
 
     /**
-     * Evaluates a single gene's fitness, by calculating the total_weight
-     * of items selected by the gene
-     * @return double - gene's total fitness value
+     * Evaluates a single gene's fitness
      */
-    fun evalGene(gene: String): Double {
+    private fun evalGene(gene: String): Double {
         var totalWeight = 0.0
         var totalValue = 0.0
         var fitnessValue = 0.0
@@ -126,9 +105,6 @@ class KnapsackProblem {
         return fitnessValue
     }
 
-    /**
-     * Gets best solution in population
-     */
     private val bestSolution: Int
         get() {
             var bestPosition = 0
@@ -144,52 +120,60 @@ class KnapsackProblem {
             return bestPosition
         }
 
-    /**
-     * Gets mean fitness of generation
-     */
-    private val meanFitness: Double
+    private val averageFitness: Double
         get() {
             var totalFitness = 0.0
-            var meanFitness = 0.0
+            var averageFitness = 0.0
             for (i in 0 until populationSize) {
                 totalFitness += fitness[i]
             }
-            meanFitness = totalFitness / populationSize
-            return meanFitness
+            averageFitness = totalFitness / populationSize
+            return averageFitness
         }
 
     fun getSummary(generationIndex: Int) {
         bestGenerationSolution.add(population[bestSolution])
         bestGenerationFitness.add(evalGene(population[bestSolution]))
-        meanGenerationFitness.add(meanFitness)
+        averageGenerationFitness.add(averageFitness)
         println("\n-----------------------------------")
         println("| Best solution: ${bestGenerationSolution[generationIndex]}")
         println("| Best fitness: ${bestGenerationFitness[generationIndex]}")
-        println("| Worst fitness: ${meanGenerationFitness[generationIndex]}")
+        println("| Average fitness: ${averageGenerationFitness[generationIndex]}")
         println("-----------------------------------")
         println("| Crossover:  $crossoverCount times")
         println("| Cloning:  $cloneCount times")
-        when {
-            mutation -> println("| Mutation did occur")
-            else -> println("| Mutation did not occur")
-        }
+        println("| Mutation:  $mutationCount times")
         println("-----------------------------------")
     }
 
-    /**
-     * Makes further generations beyond first, if necessary
-     */
+    private fun tournamentSelection(): String {
+        val randPickOne = (0..populationSize).random()
+        val randPickTwo = (0..populationSize).random()
+        val randPickThree = (0..populationSize).random()
+
+        val topGene = mutableListOf(
+            Pair(population[randPickOne], fitness[randPickOne]),
+            Pair(population[randPickTwo], fitness[randPickTwo]),
+            Pair(population[randPickThree], fitness[randPickThree])
+        )
+            .sortedByDescending { it.second }
+            .first()
+
+        return topGene.first
+    }
+
     fun makeGenerations() {
 
         for (i in 1 until maxGenerations) {
-
             if (checkForStopCriteria(i)) break
-
             resetCounters()
 
-            // Breed population
-            for (j in 0 until populationSize / 2) {
-                this.breedPopulation()
+            while (breedPopulation.size < populationSize) {
+                // if 2 genes wont fit into new population just copy best solution from previous generation
+                if (populationSize - breedPopulation.size == 1)
+                    breedPopulation.add(bestGenerationSolution[generationCounter - 1])
+                crossoverGenes(tournamentSelection(), tournamentSelection())
+                mutateGene()
             }
 
             // Clear fitness values of previous generation
@@ -205,11 +189,9 @@ class KnapsackProblem {
 
             println("=========================================================")
             println("\nGENERATION ${(i + 1)}")
-
             printPopulation(this)
             printFitness(this)
             breedPopulation.clear()
-
             getSummary(i)
         }
     }
@@ -217,20 +199,19 @@ class KnapsackProblem {
     private fun resetCounters() {
         crossoverCount = 0
         cloneCount = 0
-        mutation = false
+        mutationCount = 0
     }
 
     private fun checkForStopCriteria(i: Int): Boolean {
         if (maxGenerations > 4 && i > 4) {
 
-            // Previous 3 generational fitness values
-            val a = meanGenerationFitness[i - 1]
-            val b = meanGenerationFitness[i - 2]
-            val c = meanGenerationFitness[i - 3]
+            // Previous 3 generational average fitness values
+            val a = averageGenerationFitness[i - 1]
+            val b = averageGenerationFitness[i - 2]
+            val c = averageGenerationFitness[i - 3]
 
             if (a == b && b == c) {
-                println("\nStop criterion met")
-                maxGenerations = i
+                println("\nStop criteria!")
                 return true
             }
         }
@@ -238,106 +219,44 @@ class KnapsackProblem {
     }
 
     /**
-     * Breeds current population to create a new generation's population
+     * Crossover
      */
-    private fun breedPopulation() {
-        val geneOne: Int = selectGene()
-        val geneTwo: Int = selectGene()
-        generationCounter += 1
-
-        // If population size is odd clone best solution from previous generation
-        if (populationSize % 2 == 1) {
-            breedPopulation.add(bestGenerationSolution[generationCounter - 1])
-        }
-
-        // Crossover or cloning
-        crossoverGenes(geneOne, geneTwo)
-    }
-
-    /**
-     * Selects a gene for breeding
-     */
-    private fun selectGene(): Int {
-        var rand = Math.random() * totalGenerationFitness
-        for (i in 0 until populationSize) {
-            if (rand <= fitness[i]) {
-                return i
-            }
-            rand -= fitness[i]
-        }
-        return 0
-    }
-
-    /**
-     * Performs either crossover or cloning
-     */
-    private fun crossoverGenes(geneOne: Int, geneTwo: Int) {
-        var newGeneOne: String = ""
-        var newGeneTwo: String = ""
+    private fun crossoverGenes(geneOne: String, geneTwo: String) {
 
         val crossoverRand = Math.random()
         if (crossoverRand <= crossoverProbability) {
             crossoverCount += 1
-            val generator = Random()
-            val crossingPoint = generator.nextInt(items.size) + 1
+            val crossingPoint = (0..items.size).random()
 
             // Crossing genes at randomly chosen spot
-            newGeneOne = population[geneOne].substring(0, crossingPoint) + population[geneTwo].substring(crossingPoint)
-            newGeneTwo = population[geneTwo].substring(0, crossingPoint) + population[geneOne].substring(crossingPoint)
+            val newGeneOne = geneOne.substring(0, crossingPoint) + geneTwo.substring(crossingPoint)
+            val newGeneTwo = geneTwo.substring(0, crossingPoint) + geneOne.substring(crossingPoint)
 
             // Add new genes to breed_population
             breedPopulation.add(newGeneOne)
             breedPopulation.add(newGeneTwo)
         } else {
             cloneCount += 1
-            breedPopulation.add(population[geneOne])
-            breedPopulation.add(population[geneTwo])
+            breedPopulation.add(geneOne)
+            breedPopulation.add(geneTwo)
         }
-        mutateGene()
     }
 
     /**
-     * Performs mutation, if necessary
+     * Mutation
      */
     private fun mutateGene() {
-
         val mutationRand = Math.random()
-        if (mutationRand <= mutationProbability) {
-            mutation = true
-            var mutatedGene: String
-            var newMutatedGene: String
-            val generator = Random()
-            var mutationPoint = 0
-            val whichGene = Math.random() * 100
+        if (mutationRand <= mutationProbability && breedPopulation.size >= 1) {
+            mutationCount += 1
+            val mutatedGene: String = breedPopulation[(0..breedPopulation.size).random()]
+            val mutationPoint = (0..items.size).random()
+            val newGene = if (mutatedGene[mutationPoint] == '0') {
+                mutatedGene.replaceRange(mutationPoint, mutationPoint + 1, "1")
+            } else
+                mutatedGene.replaceRange(mutationPoint, mutationPoint + 1, "0")
 
-            if (whichGene <= 50) {
-                mutatedGene = breedPopulation[breedPopulation.size - 1]
-                mutationPoint = generator.nextInt(items.size)
-                if (mutatedGene.substring(mutationPoint, mutationPoint + 1) == "1") {
-                    newMutatedGene = mutatedGene.substring(0, mutationPoint) + "0" +
-                            mutatedGene.substring(mutationPoint)
-                    breedPopulation[breedPopulation.size - 1] = newMutatedGene
-                }
-                if (mutatedGene.substring(mutationPoint, mutationPoint + 1) == "0") {
-                    newMutatedGene = mutatedGene.substring(0, mutationPoint) + "1" +
-                            mutatedGene.substring(mutationPoint)
-                    breedPopulation[breedPopulation.size - 1] = newMutatedGene
-                }
-            }
-            if (whichGene > 50) {
-                mutatedGene = breedPopulation[breedPopulation.size - 2]
-                mutationPoint = generator.nextInt(items.size)
-                if (mutatedGene.substring(mutationPoint, mutationPoint + 1) == "1") {
-                    newMutatedGene = mutatedGene.substring(0, mutationPoint) + "0" +
-                            mutatedGene.substring(mutationPoint)
-                    breedPopulation[breedPopulation.size - 1] = newMutatedGene
-                }
-                if (mutatedGene.substring(mutationPoint, mutationPoint + 1) == "0") {
-                    newMutatedGene = mutatedGene.substring(0, mutationPoint) + "1" +
-                            mutatedGene.substring(mutationPoint)
-                    breedPopulation[breedPopulation.size - 2] = newMutatedGene
-                }
-            }
+            breedPopulation[breedPopulation.indexOf(mutatedGene)] = newGene
         }
     }
 }
